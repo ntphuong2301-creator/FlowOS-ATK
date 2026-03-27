@@ -1,0 +1,417 @@
+Làm 4 việc theo thứ tự. Đọc kỹ từng phần trước khi code.
+
+═══════════════════════════════════════════════════════
+PHẦN 1 — XÓA SPRINT KHỎI TOÀN BỘ HỆ THỐNG
+═══════════════════════════════════════════════════════
+
+Bỏ hoàn toàn khái niệm Sprint trong FlowOS.
+Thay thế bằng timeline thực tế (ngày bắt đầu / kết thúc).
+
+1. Prisma schema — model GiaiDoan (Sprint):
+   Xóa bảng GiaiDoan khỏi schema
+   Xóa field giaiDoanId khỏi model CongViec
+   Chạy: npx prisma migrate dev --name remove_sprint
+
+2. Tất cả API — xóa params liên quan sprint:
+   GET /api/cong-viec: bỏ param sprintId
+   Thêm params: tuTuan, denNgay (date range filter)
+
+3. Frontend — xóa mọi chỗ hiện "Sprint X":
+   Tìm toàn bộ file tsx/ts có chữ "sprint" hoặc "Sprint"
+   Thay bằng khoảng thời gian: "28/03 → 04/04"
+   Hoặc hiện ngày kết thúc: "Hạn 04/04"
+
+4. Import Excel (nhap-du-lieu.ts):
+   Bỏ đọc sheet "⏰Sprint"
+   Không import GiaiDoan nữa
+
+═══════════════════════════════════════════════════════
+PHẦN 2 — RULE MỚI: CÔNG VIỆC NHẬP THEO BƯỚC
+═══════════════════════════════════════════════════════
+
+Rule mới (thay thế rule OKR cũ hoàn toàn):
+
+NGUYÊN TẮC:
+  - Công việc KHÔNG còn nhóm theo OKR/Mục tiêu
+  - Công việc NHÓM THEO BƯỚC (NAP3, RD4, BBC1...)
+  - Leader hoặc nhân sự tự nhập công việc vào bước
+    của mình trực tiếp trong FlowOS
+  - Mỗi bước có thể có nhiều công việc con
+  - Bước XONG khi TẤT CẢ công việc trong bước XONG
+    HOẶC leader đánh dấu bước xong thủ công
+
+CẤU TRÚC DỮ LIỆU mới của CongViec:
+  Bắt buộc:
+    ten          - tên công việc (nhập tự do)
+    buocId       - thuộc bước nào (bắt buộc)
+    inchargeId   - người phụ trách (bắt buộc)
+    ngayKetThuc  - hạn hoàn thành (bắt buộc)
+  
+  Tự động điền từ bước:
+    duAnId       - lấy từ buoc.duAnId
+    sanPhamIds   - lấy từ buoc.sanPhamIds
+  
+  Không bắt buộc:
+    ngayBatDau   - ngày bắt đầu
+    moTa         - mô tả chi tiết
+    dinhNghiaHoanThanh - khi nào coi là xong
+    nguoiPhoiHop - người phối hợp (array)
+    uuTien       - Cao / Trung bình / Thấp
+    ghiChu       - ghi chú tự do
+  
+  Xóa hoàn toàn:
+    mucTieu (OKR field) - không dùng nữa
+    giaiDoanId (Sprint) - không dùng nữa
+
+LOGIC TRẠNG THÁI BƯỚC tự động:
+  Bước = CHUA_LAM  khi 0 công việc DANG_LAM/XONG
+  Bước = DANG_LAM  khi có ít nhất 1 CV DANG_LAM
+  Bước = BI_CHAN    khi có CV BI_CHAN (ghi đè trên)
+  Bước = XONG      khi tất cả CV XONG
+                   HOẶC leader bấm "Đánh dấu xong"
+  
+  Cập nhật realtime qua WebSocket sau mỗi lần
+  đổi trạng thái công việc.
+
+THÊM API:
+  POST /api/buoc/:id/cong-viec
+    Body: { ten, inchargeId, ngayKetThuc,
+            ngayBatDau?, moTa?, uuTien? }
+    Tự điền duAnId, sanPhamIds từ bước
+    Trả về: CongViec mới tạo
+
+  PATCH /api/buoc/:id/danh-dau-xong
+    Leader đánh dấu bước xong thủ công
+    Đổi trangThai = XONG bất kể CV con
+
+═══════════════════════════════════════════════════════
+PHẦN 3 — HỆ THỐNG DEPENDENCY VÀ TIMELINE IMPACT
+═══════════════════════════════════════════════════════
+
+Xây dựng hệ thống phụ thuộc và tác động timeline.
+
+--- SCHEMA ---
+
+Thêm vào schema.prisma:
+
+model PhuThuocCongViec {
+  id            String   @id @default(cuid())
+  congViecId    String
+  phuThuocVaoId String
+  loai          String   @default("FINISH_TO_START")
+  soNgayBuffer  Int      @default(0)
+  congViec      CongViec @relation("downstream",
+                  fields:[congViecId])
+  phuThuocVao   CongViec @relation("upstream",
+                  fields:[phuThuocVaoId])
+}
+
+Thêm vào CongViec:
+  upstream    PhuThuocCongViec[] @relation("downstream")
+  downstream  PhuThuocCongViec[] @relation("upstream")
+  ngayKetThucThucTe DateTime?
+
+Chạy: npx prisma migrate dev --name add_dependency
+
+--- SERVICE ---
+File: server/src/services/dependency.service.ts
+
+1. layUpstream(congViecId):
+   Đệ quy lấy tất cả upstream
+   Trả về: { direct[], indirect[], coUpstreamTre: boolean }
+
+2. layDownstream(congViecId):
+   Đệ quy lấy tất cả downstream
+   Với mỗi item tính:
+     soNgayBiAnh = soNgayTre của task hiện tại
+     ngayKTMoi   = ngayKetThuc + soNgayBiAnh
+   Trả về: { direct[], indirect[], cotMocBiAnh[] }
+
+3. tinhImpactTimeline(congViecId, ngayKTMoi):
+   soNgayTre = ngayKTMoi - ngayKetThucGoc
+   Đệ quy cập nhật tất cả downstream
+   Kiểm tra ảnh hưởng Launch 15/05 và 15/06
+   Trả về:
+   {
+     danhSachAnh: [{ congViecId, ngayKTGoc,
+                     ngayKTMoi, soNgayLui }],
+     launchHTBiAnh: boolean,
+     launchTTBiAnh: boolean,
+     soNgayLuiHT: number,
+     soNgayLuiTT: number
+   }
+
+4. guiThongBaoDownstream(congViecId, impact):
+   Gửi Lark DM cho incharge của mỗi downstream
+   Template:
+   "⚠️ [Tên task] bị trễ [N ngày]
+   → Task của bạn: [tên task downstream]
+   Hạn cũ: [ngày] → Hạn mới: [ngày]
+   [Xem chi tiết] → link FlowOS"
+   
+   Nếu launchHTBiAnh → gửi thêm vào nhóm SOS:
+   "🚀 Nguy cơ Launch HT 15/05 lùi ~N ngày
+   Nguyên nhân: [task] trễ [N ngày]"
+
+--- API ---
+
+GET /api/cong-viec/:id/dependency
+Trả về:
+{
+  congViec,
+  upstream:   { direct[], indirect[] },
+  downstream: { direct[], indirect[] },
+  soNgayTreHienTai: number,
+  cotMocBiAnh: []
+}
+
+POST /api/cong-viec/:id/cap-nhat-timeline
+Body: { ngayKetThucMoi, lyDo }
+Bước 1: Cập nhật ngayKetThucThucTe
+Bước 2: Gọi tinhImpactTimeline
+Bước 3: Trả về impact để user confirm
+KHÔNG tự động cập nhật downstream
+        (chờ confirm từ user)
+
+POST /api/cong-viec/:id/confirm-impact
+Body: { danhSachAnh[], guiThongBao: boolean }
+Bước 1: Batch update ngayKetThucThucTe
+         cho tất cả downstream
+Bước 2: Nếu guiThongBao → gửi Lark DM
+Bước 3: Nếu launch bị ảnh hưởng → gửi SOS
+
+POST /api/cong-viec/:id/them-phu-thuoc
+Body: { phuThuocVaoId, loai?, soNgayBuffer? }
+Tạo quan hệ phụ thuộc giữa 2 công việc
+
+DELETE /api/cong-viec/:id/xoa-phu-thuoc/:depId
+Xóa quan hệ phụ thuộc
+
+POST /api/cong-viec/:id/notify-downstream
+Gửi Lark DM ngay cho tất cả downstream
+
+--- HIỆN THỊ TRONG DÒNG CHẢY ---
+
+Khi task/bước trễ:
+  Bước trễ: viền đỏ đậm + icon ⚠ góc trên phải
+  Mũi tên → downstream: đổi sang cam #EF9F27
+  Mũi tên critical path bị ảnh hưởng: đỏ #E24B4A
+  
+  Hover mũi tên → tooltip:
+  "[Task A] trễ 3 ngày → [Task B] bị lùi 3 ngày"
+  
+  Label nhỏ trên node downstream: "+3 ngày"
+
+═══════════════════════════════════════════════════════
+PHẦN 4 — XÂY DỰNG LẠI TRANG CÔNG VIỆC
+═══════════════════════════════════════════════════════
+
+File: client/src/pages/CongViec.tsx
+Tên: "Công việc của tôi"
+Layout: 50% trái (danh sách) / 50% phải (panel)
+Panel phải có nút × đóng, click task → mở lại
+
+--- FILTER BAR ---
+
+Hàng 1:
+  [Của tôi | Tất cả] — toggle pill
+  [Tất cả DA ▾] — dropdown lọc theo dự án
+  [Từ ngày] → [Đến ngày] — date range
+  Mặc định date range: hôm nay → +14 ngày
+  Hiện: "X việc · Y bị chặn" bên phải
+
+Hàng 2 — filter trạng thái pills:
+  [● Đang làm] [● Bị chặn] [● Trễ]
+  [● Chưa làm] [● Xong rồi]
+  Mặc định bật: Đang làm + Bị chặn + Trễ
+  Mặc định tắt: Chưa làm + Xong rồi
+
+Lưu filter: localStorage "flowos_filter_cv_[userId]"
+
+--- DANH SÁCH — NHÓM THEO BƯỚC ---
+
+Thay OKR bằng BƯỚC làm header nhóm:
+
+▼ [màu DA] NAP3 — Đạt test trải nghiệm nắp
+           DA3 Nắp · Incharge: Quang Bé
+           Trạng thái bước: [Bị blocked]
+           ████░░ 2/5 công việc xong
+           Nút [+ Thêm công việc vào bước này]
+
+  [task row] [task row] [task row]...
+
+▼ [màu DA] RD4 — Mẫu thử đạt tiêu chí hóa lý
+           DA1,2 RD · Incharge: Thắng
+           Trạng thái bước: [Đang làm]
+           ██████░░ 3/5 công việc xong
+           Nút [+ Thêm công việc vào bước này]
+
+  [task row]...
+
+Màu badge DA:
+  DA1,2 RD   → xanh dương #378ADD
+  DA3 Nắp    → tím #534AB7
+  DA4 Bao Bì → cam #EF9F27
+  DA5 DC     → xanh đậm #0C447C
+  DA6 PC     → xanh lá #639922
+  DA7 SXCN   → xám đậm #444441
+  DA8 Vốn    → vàng #BA7517
+
+Mỗi task row (height 48px):
+  [dot màu TT] [tên CV]        [badge hạn]  [badge TT▾]
+               [incharge · hạn · số ngày trễ nếu có]
+
+  dot: xanh lá=Xong · xanh dương=Đang làm
+       đỏ=Bị chặn · vàng=Trễ · xám=Chưa làm
+  
+  badge TT = dropdown đổi trạng thái inline
+  Nếu đổi → "Bị chặn": tự mở modal tạo cản trở
+  
+  Click hàng → mở panel phải 50%
+  Row active: nền #E1F5EE + border-left 2px #008264
+
+Nút [+ Thêm công việc] trong header bước:
+  Mở form nhỏ inline bên dưới header:
+  ┌─────────────────────────────────────────┐
+  │ Tên công việc*  [________________]      │
+  │ Incharge*       [dropdown thành viên]   │
+  │ Hạn hoàn thành* [date picker]           │
+  │ Ưu tiên         [Cao|TB|Thấp]           │
+  │              [Hủy]  [Thêm công việc]    │
+  └─────────────────────────────────────────┘
+  Bước, DA, Sản phẩm tự điền từ bước → không hiện
+  POST /api/buoc/:buocId/cong-viec
+
+--- PANEL PHẢI (50%) ---
+
+Header panel:
+  [Tên CV đầy đủ — có thể click edit]     [×]
+  [badges: TT · ngày trễ]
+  [3 nút: ✓ Xong rồi | ⚠ Báo chặn | 📅 Đổi hạn]
+  
+  Click "Xong rồi":
+    PUT trạng thái → XONG
+    Hỏi "Ghi chú hoàn thành?" optional
+    Kiểm tra bước có xong hết không →
+      Nếu xong hết → hỏi "Đánh dấu bước NAP3 xong?"
+  
+  Click "Báo chặn":
+    Mở form cản trở inline trong panel
+    Tự điền: congViecBiChanId, nguoiGapId
+  
+  Click "Đổi hạn":
+    Inline date picker
+    Sau chọn ngày → gọi dependency preview
+    Hiện modal confirm impact nếu có downstream
+
+TAB 1 — "Chi tiết":
+  Bước quy trình → clickable → mở PanelBuoc
+  Dự án
+  Incharge (editable)
+  Phối hợp với (editable, multi)
+  Hạn gốc
+  Hạn thực tế (đỏ nếu khác gốc)
+  Sản phẩm → clickable
+  Ưu tiên (editable)
+  Định nghĩa hoàn thành (text block)
+  Ghi chú (textarea, auto-save on blur)
+  Lịch sử 5 mục gần nhất
+
+TAB 2 — "Liên kết & Tác động":
+  
+  UPSTREAM — "Tôi đang chờ":
+    Mỗi item:
+      [dot TT] [tên task]              [badge TT]
+      Incharge · Bước · Hạn · [trễ X ngày nếu có]
+    
+    Banner vàng nếu có upstream trễ:
+    "⚠ [tên] trễ X ngày → bạn có thể bị ảnh hưởng"
+    Nút "Xem chi tiết upstream" → click vào task đó
+
+  DOWNSTREAM — "Đang chờ tôi":
+    Mỗi item:
+      [dot TT] [tên task]         [+X ngày nếu tôi trễ]
+      Incharge · Bước · Hạn hiện tại → hạn mới
+
+  CẢNH BÁO MILESTONE:
+    Nếu ảnh hưởng launch:
+    [đỏ] "Tiếp tục trễ → 🚀 Launch HT 15/05
+          có nguy cơ lùi ~X ngày"
+
+  3 NÚT HÀNH ĐỘNG:
+    [📢 Thông báo downstream qua Lark]
+      POST /api/cong-viec/:id/notify-downstream
+    
+    [📅 Cập nhật hạn + tính lại chuỗi]
+      Flow 4 bước:
+      1. Chọn ngày mới + lý do
+      2. Preview danh sách downstream bị ảnh hưởng
+      3. Tick "Gửi thông báo Lark cho X người"
+      4. [Hủy] [Xác nhận cập nhật]
+    
+    [🤖 AI đề xuất cách recover]
+      POST /api/ai/goi-y-recover
+      Streaming response trong panel
+
+--- THÊM CÔNG VIỆC VÀO BƯỚC TỪ PANEL BÊN PHẢI ---
+
+Khi đang xem panel của 1 task thuộc bước NAP3:
+  Ở tab Chi tiết, dưới thông tin bước:
+  Link "+ Thêm việc khác vào NAP3"
+  Click → mở inline form trong panel
+
+--- BANNER DAILY ---
+
+Cố định dưới cùng cột trái:
+  Chưa báo: nền vàng "Chưa báo cáo hôm nay [Điền ngay]"
+  Đã báo:   nền xanh "✓ Đã báo cáo lúc HH:mm [Xem lại]"
+
+--- MODAL DAILY REPORT ---
+
+Mở từ banner, 4 phần:
+
+A — Hôm nay đã làm gì:
+  Checkbox list: task "Của tôi + Đang làm/Bị chặn"
+  Mỗi task được check → toggle "Đã xong chưa?"
+    Xong → trạng thái → XONG
+    Chưa → giữ nguyên
+  Textarea ghi chú tự do
+
+B — Ngày mai sẽ làm gì:
+  Checkbox list: task "Của tôi + Chưa làm/Đang làm"
+  Textarea tự do
+
+C — Cần hỗ trợ gì:
+  Textarea optional
+  Toggle "Đang bị cản trở" → inline form cản trở
+
+D — Trạng thái hôm nay:
+  3 nút emoji lớn: 😊 😐 😓
+
+Submit → POST /api/cap-nhat-hang-ngay
+  Batch update trạng thái task đã tick xong
+  Tạo cản trở nếu có
+  Gửi Lark nếu có cản trở mới
+
+--- DATA & PERFORMANCE ---
+
+Load trang:
+  GET /api/cong-viec?
+    inchargeId=[me hoặc all]
+    &tuNgay=[hôm nay]
+    &denNgay=[+14 ngày]
+    &trangThai=[DANG_LAM,BI_CHAN,TRE]
+  Response: grouped by buocId
+  Mỗi group gồm: info bước + list công việc
+
+Auto refresh: mọi 3 phút, refetch không reload
+Optimistic update khi đổi trạng thái
+Skeleton loader khi fetch
+
+Empty states:
+  Không có task: "Không có công việc trong khoảng
+  thời gian này với filter hiện tại"
+  Nút: [Xóa filter] [Mở rộng date range]
+  
+  Chưa được giao: "Bạn chưa được giao việc nào"
+  Nút: [Xem tất cả công việc →]

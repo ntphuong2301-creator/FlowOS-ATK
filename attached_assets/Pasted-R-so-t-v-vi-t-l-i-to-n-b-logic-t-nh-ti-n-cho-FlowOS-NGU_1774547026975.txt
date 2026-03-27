@@ -1,0 +1,104 @@
+Rà soát và viết lại toàn bộ logic tính tiến độ cho FlowOS.
+NGUYÊN TẮC: Tất cả % tính từ database, KHÔNG đọc từ file Excel.
+Excel chỉ dùng để nhập dữ liệu setup (mã bước, tên, incharge, 
+ngày, phụ thuộc). Công thức % hoàn toàn do backend tính.
+
+═══════════════════════════════════════════
+PHẦN 1 — LOGIC TÍNH % TIẾN ĐỘ
+File: server/src/services/tiendo.service.ts
+═══════════════════════════════════════════
+
+Viết TiendoService với các hàm sau, tất cả query từ bảng Buoc:
+
+1. tinhTiendoRD(sanPhamId):
+   - Lấy tất cả bước mã bắt đầu bằng "RD" thuộc sản phẩm đó
+   - % = số bước trangThai=XONG / tổng bước RD × 100
+   - Trả về: { phanTram, buocHienTai, tongBuoc, buocXong }
+
+2. tinhTiendoNap(sanPhamId):
+   - Lấy tất cả bước mã bắt đầu bằng "NAP"
+   - Tổng bước NAP = 13 (cố định)
+   - Bước hiện tại = bước NAP có số thứ tự lớn nhất
+     đang ở trạng thái XONG hoặc DANG_LAM
+   - % = số thứ tự bước hiện tại / 13 × 100
+   - Trả về: { phanTram, buocHienTai, tongBuoc: 13 }
+
+3. tinhTiendoBaoBi(sanPhamId):
+   - Lấy tất cả bước BBC (chai) + BBNH (nhãn) thuộc sản phẩm
+   - % = số bước XONG / tổng bước × 100
+   - Trả về: { phanTram, buocXong, tongBuoc,
+               chiTiet: { chai, nhan } }
+
+4. tinhTiendoPhapChe(sanPhamId):
+   - Bước PCSPB1 đến PCSPB7
+   - % = số bước XONG / 7 × 100
+
+5. tinhTiendoSXCN(sanPhamId):
+   - Bước SXCN1 đến SXCN6
+   - % = số bước XONG / 6 × 100
+
+6. tinhTrangThaiTong(sanPhamId):
+   Logic theo thứ tự ưu tiên:
+   - Có bước BI_CHAN + cản trở RAT_NGHIEM_TRONG → "🔴 Bị cản trở"
+   - Còn < 30 ngày đến launch mà bất kỳ % < 30% → "🔴 Nguy hiểm"
+   - Bất kỳ % < 50% → "🟡 Rủi ro"
+   - Tất cả % > 80% → "🟢 Chạy mượt"
+   - Mặc định → "🟢 Chạy mượt"
+
+7. tinhTongTiendoSanPham(sanPhamId):
+   % tổng = trung bình có trọng số:
+   R&D 30% + Nắp 25% + Bao bì 20% + Pháp chế 15% + SXCN 10%
+
+═══════════════════════════════════════════
+PHẦN 2 — API ENDPOINT
+═══════════════════════════════════════════
+
+GET /api/san-pham/:id/tien-do
+Trả về:
+{
+  sanPhamId, maSP, ten, kenh,
+  tongTienDo: number,
+  trangThaiTong: string,
+  conNgay: number,
+  chiTiet: {
+    rd:      { phanTram, buocXong, tongBuoc, buocHienTai },
+    nap:     { phanTram, buocHienTai, tongBuoc: 13 },
+    baoBi:   { phanTram, buocXong, tongBuoc },
+    phapChe: { phanTram, buocXong, tongBuoc: 7 },
+    sxcn:    { phanTram, buocXong, tongBuoc: 6 }
+  },
+  canTroHienTai: CanTro[]
+}
+
+GET /api/san-pham         → list 13 SKU + % realtime
+GET /api/san-pham/tong-quan → summary cho CEO dashboard
+
+═══════════════════════════════════════════
+PHẦN 3 — FIX IMPORT EXCEL
+File: server/scripts/nhap-du-lieu.ts
+═══════════════════════════════════════════
+
+Khi đọc file Excel, CHỈ lấy các trường này:
+
+Bảng Buoc (sheet "👣 Các Bước Quy Trình"):
+  ma, ten, duAnId, phuThuocVao, incharge,
+  ngayBatDau, ngayKetThuc, soNgayDuKien,
+  dinhNghiaHoanThanh, ghiChu,
+  trangThai map:
+    "✅ Xong rồi" → XONG
+    "🔵 Đang làm" → DANG_LAM
+    "🔴 Bị blocked" → BI_CHAN
+    "⚪ Chưa làm"  → CHUA_LAM
+
+KHÔNG import: % hoàn thành, công thức tính,
+lookup references, parent items, cột tổng hợp
+
+Bảng SanPham (sheet "🍶 Sản Phẩm 13 SKU"):
+  maSP, ten, kenh, huongVi, dungTichMl,
+  phLevel, ngayLaunch
+
+KHÔNG import: % tiến độ, trạng thái tổng,
+cản trở — backend tự tính realtime
+
+Sau khi import xong: gọi TiendoService.tinhLai()
+để tính toàn bộ % cho 13 SKU từ data mới nhập.

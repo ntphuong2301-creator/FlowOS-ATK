@@ -1,0 +1,84 @@
+Xây dựng trang quản lý 13 SKU.
+File: client/src/pages/SanPham.tsx
+
+═══════════════════════════════════════════
+BỘ LỌC
+═══════════════════════════════════════════
+
+Hàng trên cùng:
+- Tab: [Tất cả] [Hệ Thống] [Truyền Thống]
+- Dropdown: Trạng thái (Tất cả / Chạy mượt / Rủi ro / Bị cản trở)
+- Ô tìm kiếm: theo tên hoặc mã SP
+
+═══════════════════════════════════════════
+LƯỚI SẢN PHẨM — 3 cột desktop, 2 cột tablet, 1 cột mobile
+═══════════════════════════════════════════
+
+Mỗi thẻ SKU:
+
+┌──────────────────────────────────┐
+│ [HT]  HT-Khoáng Thường           │  ← badge kênh + mã SP
+│ HT1 Kiềm Khoáng                  │  ← tên SP
+│ Không hương · 500ml · pH 8.5     │  ← thông số
+│                                  │
+│ R&D    ████████░░  73%           │  ← #378ADD xanh dương
+│ Nắp    █░░░░░░░░░   8%           │  ← #534AB7 tím
+│ Bao bì ████████░░  77%           │  ← #EF9F27 cam
+│ Pháp   ████░░░░░░  29%           │  ← #639922 xanh lá
+│ SXCN   ░░░░░░░░░░   0%           │  ← #888888 xám khi 0%
+│                                  │
+│ 🚀 30/04/2026  còn 34 ngày       │
+│ [🟢 Chạy mượt]                   │
+└──────────────────────────────────┘
+
+Màu badge kênh:
+  HT → nền #008264, chữ trắng
+  TT → nền #534AB7, chữ trắng
+
+Màu badge trạng thái:
+  🟢 Chạy mượt  → nền #E1F5EE, chữ #065F46
+  🟡 Rủi ro     → nền #FAEEDA, chữ #92400E
+  🔴 Bị cản trở → nền #FCEBEB, chữ #991B1B
+  ⚪ Chưa bắt đầu → nền #F3F4F6, chữ #6B7280
+
+Số ngày còn lại:
+  > 30 ngày → chữ #008264
+  14-30 ngày → chữ #EF9F27, bold
+  < 14 ngày → chữ #E24B4A, bold + nhấp nháy nhẹ
+
+% tự động gọi từ API /api/san-pham/:id/tien-do
+KHÔNG hardcode, KHÔNG đọc từ Excel
+
+═══════════════════════════════════════════
+PANEL CHI TIẾT — mở khi click vào thẻ
+═══════════════════════════════════════════
+
+Panel trượt từ phải (width 420px):
+
+1. Header: tên SP + badge kênh + trạng thái tổng
+
+2. % chi tiết từng bước:
+   Mỗi dòng: tên bước · trạng thái · ngày KT
+   Nhóm theo: R&D / Nắp / Bao bì / Pháp chế / SXCN
+   Bước XONG → màu xanh + icon ✓
+   Bước DANG_LAM → màu xanh dương + icon ⟳
+   Bước BI_CHAN → màu đỏ + icon ⚠
+   Bước CHUA_LAM → màu xám
+
+3. Cản trở đang mở của SP này:
+   - Tên cản trở + mức độ + người xử lý + hạn
+
+4. AI gợi ý "Bước tiếp theo":
+   POST /api/ai/goi-y-buoc-tiep
+   Input: sanPhamId, trangThaiHienTai
+   Hiển thị 1-2 câu ngắn gọn
+
+═══════════════════════════════════════════
+DỮ LIỆU & REFRESH
+═══════════════════════════════════════════
+
+- Gọi GET /api/san-pham khi load trang
+- Tự refresh mỗi 5 phút
+- Nút refresh thủ công ở góc trên phải
+- Loading skeleton khi đang fetch
+- Hiển thị "Cập nhật lúc HH:mm" dưới cùng

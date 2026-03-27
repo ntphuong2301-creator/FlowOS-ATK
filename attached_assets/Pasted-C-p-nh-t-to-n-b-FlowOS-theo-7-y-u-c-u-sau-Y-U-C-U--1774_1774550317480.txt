@@ -1,0 +1,241 @@
+Cập nhật toàn bộ FlowOS theo 7 yêu cầu sau:
+
+═══════════════════════════════════════════
+YÊU CẦU 1 — BỎ SPRINT, DÙNG TUẦN
+═══════════════════════════════════════════
+
+Xóa toàn bộ khái niệm "Sprint" khỏi hệ thống.
+Thay thế bằng "Tuần":
+
+Prisma schema:
+  Đổi tên bảng GiaiDoan → Tuan
+  Đổi field tênSprint → tenTuan
+  Đổi field giaiDoanId trong CongViec → tuanId
+
+Dữ liệu tuần tự động tính từ ngày bắt đầu/kết thúc
+của task, không cần bảng riêng nữa.
+Xóa bảng GiaiDoan khỏi schema.
+
+Thay thế hiển thị toàn bộ:
+  "Sprint 1" → "Tuần 16–21/03"
+  "Sprint 2" → "Tuần 23–28/03"
+  "Sprint hiện tại" → "Tuần này"
+  Tính tuần từ: Math.ceil((ngayKetThuc - ngayBatDauDuAn) / 7)
+  Format: "Tuần DD/MM – DD/MM"
+
+Các trang cần cập nhật:
+  - CongViec.tsx: bỏ filter Sprint → đổi thành filter Tuần
+  - DongChayDuAn.tsx: trục thời gian giữ nguyên theo tuần lịch
+  - Dashboard: bỏ "Sprint hiện tại" → đổi thành "Tuần này"
+  - Daily Report: bỏ trường Sprint
+  - Tất cả form tạo/sửa công việc: bỏ dropdown Sprint
+
+═══════════════════════════════════════════
+YÊU CẦU 2 — DỊCH TOÀN BỘ SANG TIẾNG VIỆT
+═══════════════════════════════════════════
+
+Rà soát và dịch tất cả text tiếng Anh trong toàn bộ
+frontend sang tiếng Việt. Không để sót từ nào.
+
+Danh sách cần dịch (bắt buộc):
+  "Dashboard" → "Bảng chỉ huy"
+  "Sprint" → "Tuần" (đã nêu ở YC1)
+  "Incharge" → "Người phụ trách"
+  "Leader" → "Trưởng nhóm"
+  "Member" → "Thành viên"
+  "Blocked" / "Block" → "Bị chặn"
+  "Status" → "Trạng thái"
+  "Timeline" → "Dòng thời gian"
+  "Upstream" → "Việc trước tôi"
+  "Downstream" → "Việc sau tôi"
+  "Gantt" → "Biểu đồ tiến độ"
+  "Kanban" → "Bảng cột"
+  "Filter" → "Lọc"
+  "Cancel" → "Hủy"
+  "Save" → "Lưu"
+  "Submit" → "Gửi"
+  "Delete" → "Xóa"
+  "Edit" → "Chỉnh sửa"
+  "Add" → "Thêm"
+  "Create" → "Tạo mới"
+  "Loading..." → "Đang tải..."
+  "No data" → "Chưa có dữ liệu"
+  "Search..." → "Tìm kiếm..."
+  "Settings" → "Cài đặt"
+  "Profile" → "Hồ sơ"
+  "Logout" → "Đăng xuất"
+  "Confirm" → "Xác nhận"
+  "Error" → "Lỗi"
+  "Success" → "Thành công"
+  "Warning" → "Cảnh báo"
+  "Overview" → "Tổng quan"
+  "Detail" → "Chi tiết"
+  "View all" → "Xem tất cả"
+  "Back" → "Quay lại"
+  "Next" → "Tiếp theo"
+  "Previous" → "Trước đó"
+  "Refresh" → "Làm mới"
+  "Export" → "Xuất dữ liệu"
+  "Import" → "Nhập dữ liệu"
+  "Total" → "Tổng cộng"
+  "Completed" → "Hoàn thành"
+  "In progress" → "Đang làm"
+  "Not started" → "Chưa làm"
+  "Due date" → "Hạn hoàn thành"
+  "Start date" → "Ngày bắt đầu"
+  "End date" → "Ngày kết thúc"
+  "Days late" → "Ngày trễ"
+  "Days remaining" → "Ngày còn lại"
+  "Today" → "Hôm nay"
+  "This week" → "Tuần này"
+  "Overdue" → "Quá hạn"
+  "Priority" → "Ưu tiên"
+  "High" → "Cao"
+  "Medium" → "Trung bình"
+  "Low" → "Thấp"
+  "Notes" → "Ghi chú"
+  "Description" → "Mô tả"
+  "Attachment" → "Tệp đính kèm"
+  "Comment" → "Bình luận"
+  "Assign" → "Giao việc"
+  "Unassign" → "Bỏ giao"
+  "Notify" → "Thông báo"
+  "Update" → "Cập nhật"
+  "History" → "Lịch sử"
+  "Activity" → "Hoạt động"
+  "Team" → "Nhóm" hoặc "Đội"
+  "Project" → "Dự án"
+  "Task" → "Công việc"
+  "Milestone" → "Cột mốc"
+  "Dependency" → "Phụ thuộc"
+  "Impact" → "Tác động"
+  "Risk" → "Rủi ro"
+  "Issue" → "Vấn đề"
+  "Resolution" → "Giải pháp"
+  "Deadline" → "Hạn chót"
+  "Progress" → "Tiến độ"
+  "Percentage" → "%"
+  "Workflow" → "Quy trình"
+  "Process" → "Quy trình"
+  "Step" → "Bước"
+  "Stage" → "Giai đoạn"
+  "Phase" → "Giai đoạn"
+  "Launch" → "Ra mắt"
+  "Release" → "Phát hành"
+  "Publish" → "Công bố"
+  "Archive" → "Lưu trữ"
+  "Duplicate" → "Nhân đôi"
+  "Copy" → "Sao chép"
+  "Paste" → "Dán"
+  "Undo" → "Hoàn tác"
+  "Redo" → "Làm lại"
+  "Zoom in" → "Phóng to"
+  "Zoom out" → "Thu nhỏ"
+  "Fit to screen" → "Vừa màn hình"
+  "Full screen" → "Toàn màn hình"
+  "Collapse" → "Thu gọn"
+  "Expand" → "Mở rộng"
+  "Sort by" → "Sắp xếp theo"
+  "Group by" → "Nhóm theo"
+  "Row" → "Hàng"
+  "Column" → "Cột"
+  "Table" → "Bảng"
+  "Chart" → "Biểu đồ"
+  "Graph" → "Đồ thị"
+  "Board" → "Bảng"
+  "List" → "Danh sách"
+  "Grid" → "Lưới"
+  "Card" → "Thẻ"
+  "Tag" → "Nhãn"
+  "Label" → "Nhãn"
+  "Badge" → "Huy hiệu"
+  "Icon" → giữ icon, bỏ text "Icon"
+  "Avatar" → "Ảnh đại diện"
+  "Role" → "Vai trò"
+  "Permission" → "Quyền hạn"
+  "Admin" → "Quản trị viên"
+  "Manager" → "Quản lý"
+  "User" → "Người dùng"
+  "Account" → "Tài khoản"
+  "Password" → "Mật khẩu"
+  "Email" → "Email" (giữ nguyên)
+  "Login" → "Đăng nhập"
+  "Logout" → "Đăng xuất"
+  "Register" → "Đăng ký"
+  "Forgot password" → "Quên mật khẩu"
+  "Remember me" → "Ghi nhớ đăng nhập"
+  "Welcome back" → "Chào mừng trở lại"
+  "Sign in" → "Đăng nhập"
+  "Sign out" → "Đăng xuất"
+
+Sau khi dịch: chạy grep để tìm các từ tiếng Anh
+còn sót trong toàn bộ thư mục client/src/
+
+═══════════════════════════════════════════
+YÊU CẦU 3 — TRANG CÔNG VIỆC: CHIA 50/50
+═══════════════════════════════════════════
+
+Cập nhật CongViec.tsx:
+  Layout: grid-template-columns: 1fr 1fr
+  (thay vì 1.8fr 1fr như hiện tại)
+  
+  Cột trái 50%: danh sách công việc
+  Cột phải 50%: panel chi tiết
+  
+  Panel phải luôn hiển thị (không ẩn):
+  - Khi chưa chọn task: hiện empty state
+    "Chọn một công việc để xem chi tiết"
+  - Khi đã chọn: hiện đầy đủ chi tiết + liên kết
+
+═══════════════════════════════════════════
+YÊU CẦU 4 — MÀU THEO TRẠNG THÁI + NÚT BẤM RÕ
+═══════════════════════════════════════════
+
+Màu chỉ dùng để phân biệt trạng thái:
+  Xong rồi     → xanh lá  #008264
+  Đang làm     → xanh dương #0C447C
+  Bị chặn      → đỏ #E24B4A
+  Quá hạn      → đỏ cam #E24B4A
+  Chưa làm     → xám #888888
+
+KHÔNG dùng màu cho bất kỳ mục đích nào khác
+trong trang Công việc.
+
+Nút bấm phải có style rõ ràng:
+  Nút chính: nền đặc màu + chữ trắng + padding đủ lớn
+  Nút phụ: viền + nền trong suốt
+  Nút nguy hiểm: nền đỏ
+  
+  Ví dụ cụ thể:
+  "Thông báo xuôi dòng" → nút đỏ đặc:
+    background: #E24B4A; color: #fff;
+    padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; font-weight: 500;
+    border: none; cursor: pointer;
+    
+  "Cập nhật hạn mới" → nút vàng đặc:
+    background: #EF9F27; color: #fff; ...
+    
+  "AI đề xuất phục hồi" → nút xanh đặc:
+    background: #008264; color: #fff; ...
+    
+  "Hủy" → nút outline:
+    background: none; border: 1.5px solid #ccc; ...
+
+═══════════════════════════════════════════
+YÊU CẦU 5 — THÊM VIEW BẢNG CỘT (KANBAN)
+═══════════════════════════════════════════
+
+Thêm toggle view ở đầu trang Công việc:
+  [Danh sách] [Bảng cột]
+  
+View Bảng cột (Kanban) — 4 cột theo trạng thái:
+
+┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+│ Chưa làm │ │ Đang làm │ │ Bị chặn  │ │Xong rồi │
+│  (xám)   │ │  (xanh)  │ │  (đỏ)   │ │ (xanh)  │
+│    5     │ │    8     │ │    2    │ │   15    │
+├──────────┤ ├──────────┤ ├──────────┤ ├──────────┤
+│ thẻ task │ │ thẻ task │ │ thẻ task│ │ thẻ task│
+│ thẻ task │ │ thẻ task │ │         │ │ thẻ task│
+└

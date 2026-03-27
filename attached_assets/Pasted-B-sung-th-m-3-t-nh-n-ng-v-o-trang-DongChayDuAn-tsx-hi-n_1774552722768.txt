@@ -1,0 +1,126 @@
+Bổ sung thêm 3 tính năng vào trang DongChayDuAn.tsx hiện tại.
+KHÔNG rebuild lại từ đầu. Chỉ thêm vào code đang chạy.
+
+═══════════════════════════════════════════
+PHẦN 1 — HIỂN THỊ RÕ HƠN
+═══════════════════════════════════════════
+
+1.1 Text overflow kiểu Lark:
+  Hiện tại text bị cắt trong node.
+  Sửa: mã bước (code) hiện trong node,
+  tên bước (name) tràn ra bên PHẢI node
+  — không bị cắt, không giới hạn width.
+  
+  Chỉ tên tràn ra, mã bước vẫn trong node.
+  Text tràn ra có pointer-events: none
+  để không block click vào node khác.
+
+  Cách implement:
+    Node div: overflow: visible (không phải hidden)
+    Inner div code: position absolute, width = nodeWidth
+    Name span: position absolute, left = nodeWidth + 4px
+                white-space: nowrap, font-size: 10px
+                opacity: 0.9, pointer-events: none
+
+1.2 Node height tăng lên: 52px (đang ~28px)
+  Lane gap giữa các DA: 8px (đang 40px)
+  Khoảng trắng giữa rows trong cùng DA: 4px
+
+1.3 Tooltip khi hover node:
+  Xuất hiện sau 300ms, biến mất khi rời node
+  Nội dung:
+    [Mã bước] — [Tên đầy đủ]
+    Incharge: [tên]
+    Hạn: [ngày]  (đỏ nếu trễ)
+    Trạng thái: [text]
+    Công việc: X/Y xong
+  Style: border-radius 8px, max-width 260px,
+         z-index 9999, shadow nhẹ
+
+═══════════════════════════════════════════
+PHẦN 2 — LIÊN KẾT GIỮA CÁC BƯỚC
+═══════════════════════════════════════════
+
+2.1 Thêm model PhuThuocBuoc vào Prisma:
+  id, fromBuocId, toBuocId
+  (đuôi ông trước → đầu ông sau)
+  Chạy: npx prisma migrate dev --name add_buoc_dep
+
+2.2 API:
+  GET  /api/buoc/dependencies
+    → Trả về tất cả PhuThuocBuoc
+  POST /api/buoc/dependencies
+    Body: { fromBuocId, toBuocId }
+    Validate: không tạo vòng lặp circular
+  DELETE /api/buoc/dependencies/:id
+    Xóa 1 liên kết
+
+2.3 Vẽ liên kết trên canvas (SVG overlay):
+  Đường nét đứt màu #534AB7
+  stroke-dasharray: 5,4
+  stroke-width: 1.5
+  Mũi tên ở đầu đích (marker-end)
+  
+  Điểm xuất phát: right-center của node nguồn
+  Điểm đến: left-center của node đích
+  
+  Path L-shape:
+    M x1 y1 → L midX y1 → L midX y2 → L x2 y2
+    midX = x1 + max(20, (x2-x1)*0.4)
+  
+  Khi liên kết cross-DA (2 node khác lane):
+    Đường đi vòng qua khoảng trống giữa lanes
+
+2.4 Hover vào đường liên kết:
+  Đường đổi màu đỏ #E24B4A
+  Hiện nút × nhỏ ở giữa đường
+  Click × → xóa liên kết (gọi DELETE API)
+
+2.5 Chế độ "Kết nối bước":
+  Nút [+ Kết nối] ở thanh filter bên trên
+  Khi bật:
+    Cursor đổi thành crosshair
+    Hover node → viền xanh nhấp nháy
+    Click node đầu tiên → highlight vàng (nguồn)
+    Click node thứ hai → tạo liên kết
+      (gọi POST API → vẽ đường ngay)
+    Esc hoặc click lại nút → thoát chế độ
+  
+  Chỉ LEADER và QUAN_TRI_VIEN mới thấy nút này
+
+2.6 Checkbox "Hiện liên kết" ở footer Gantt:
+  Mặc định: bật
+  Tắt → ẩn toàn bộ SVG arrows
+  Lưu preference vào localStorage
+
+═══════════════════════════════════════════
+PHẦN 3 — UNDO / REDO
+═══════════════════════════════════════════
+
+3.1 Hook useUndoRedo tại:
+  client/src/hooks/dung-undo.ts
+  
+  Stack lưu tối đa 20 actions.
+  Mỗi action có: type, payload, rollback
+  
+  Actions được track:
+    BUOC_DOI_TRANG_THAI  → rollback trạng thái cũ
+    DEP_THEM            → DELETE dep vừa tạo
+    DEP_XOA             → tạo lại dep đã xóa
+
+3.2 Keyboard listener trong App.tsx:
+  Ctrl+Z / Cmd+Z     → undo()
+  Ctrl+Y / Cmd+Shift+Z → redo()
+  Không trigger khi focus vào input/textarea
+
+3.3 Toast notification khi undo/redo:
+  Xuất hiện góc dưới phải, tự ẩn sau 2 giây
+  "↩ Đã hoàn tác: Thêm liên kết NAP3 → DCDB1"
+  "↪ Đã làm lại: Xóa liên kết RD8 → SXCN1"
+  Style: dark background, text trắng,
+         border-radius 8px, font-size 12px
+
+3.4 Nút Undo/Redo ở footer của Gantt:
+  [↩] [↪]  — icon buttons nhỏ
+  Disabled khi không có gì để undo/redo
+  Tooltip: "Ctrl+Z" / "Ctrl+Y"

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "FlowOS"
+version = "1.0.0"
+id = "artifacts/flowos"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23447
+
+[services.development]
+run = "pnpm --filter @workspace/flowos run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/flowos", "run", "build" ]
+publicDir = "artifacts/flowos/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23447"
+BASE_PATH = "/"

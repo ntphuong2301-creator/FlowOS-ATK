@@ -1,0 +1,315 @@
+Xây dựng hệ thống liên kết công việc toàn FlowOS, rule tạo/xóa việc theo cấp bậc, và đồng bộ realtime giữa tất cả trang.
+
+═══════════════════════════════════════════
+PHẦN 1 — DATA MODEL: CÔNG VIỆC LIÊN KẾT
+═══════════════════════════════════════════
+
+Model CongViec trong Prisma phải có đủ:
+  id
+  ten                   String
+  buocId                String   (bắt buộc — thuộc bước nào)
+  duAnId                String   (tự điền từ buoc.duAnId)
+  sanPhamIds            String[] (tự điền từ buoc.sanPhamIds)
+  inchargeId            String   (bắt buộc)
+  nguoiPhoiHop          String[] (optional)
+  ngayBatDau            DateTime?
+  ngayKetThuc           DateTime (bắt buộc)
+  ngayKetThucThucTe     DateTime?
+  trangThai             Enum: CHUA_LAM|DANG_LAM|BI_CHAN|XONG
+  uuTien                Enum: CAO|TRUNG_BINH|THAP
+  moTa                  String?
+  dinhNghiaHoanThanh    String?
+  ghiChu                String?
+  daXoa                 Boolean @default(false)
+  ngayXoa               DateTime?
+  nguoiXoaId            String?
+  lyDoXoa               String?
+
+  Relations:
+    buoc              Buoc
+    incharge          NguoiDung
+    canTro            CanTro[]
+    phuThuocVao       PhuThuocCongViec[] @relation("downstream")
+    phuThuocBoi       PhuThuocCongViec[] @relation("upstream")
+    capNhatHangNgay   CapNhatHangNgay[]
+
+KHÔNG CÓ: mucTieu (OKR), giaiDoanId (Sprint)
+Chạy: npx prisma migrate dev --name fix_cong_viec_model
+
+═══════════════════════════════════════════
+PHẦN 2 — RULE TẠO / SỬA / XÓA CÔNG VIỆC
+═══════════════════════════════════════════
+
+Middleware kiểm tra quyền:
+File: server/src/middleware/quyen-cong-viec.ts
+
+--- QUAN_TRI_VIEN (Phương, Ngọc) ---
+TẠO:
+  POST /api/buoc/:id/cong-viec
+  → Tạo việc ở BẤT KỲ bước nào
+  → Giao cho BẤT KỲ người nào
+SỬA:
+  PUT /api/cong-viec/:id
+  → Sửa tất cả trường
+  → Đổi incharge sang bất kỳ ai
+XÓA:
+  DELETE /api/cong-viec/:id
+  → Soft delete: đánh dấu daXoa=true
+  → Lưu ngayXoa, nguoiXoaId, lyDoXoa
+  → Không xóa khỏi DB (giữ lịch sử)
+  → Emit WebSocket CONG_VIEC_DELETED
+
+--- TRUONG_NHOM (Thúy, Quang Lớn, Chiến...) ---
+TẠO:
+  POST /api/buoc/:id/cong-viec
+  → Chỉ tạo việc trong bước thuộc DA mình
+  → Validate: buoc.duAnId phải trong DA của leader
+  → Giao cho member trong cùng DA
+  → KHÔNG giao sang DA khác → 403
+SỬA:
+  PUT /api/cong-viec/:id
+  → Sửa việc trong DA mình
+  → Đổi incharge sang member cùng DA
+XÓA:
+  DELETE /api/cong-viec/:id
+  → Soft delete nếu việc thuộc DA mình
+  → Bắt buộc nhập lyDoXoa (không để trống)
+  → Nếu việc thuộc DA khác → 403
+  → Gửi thông báo Lark cho incharge bị xóa việc:
+    "Việc [tên] trong bước [NAP3] đã bị xóa
+    Lý do: [lyDoXoa] · Bởi: [tên leader]"
+
+--- THANH_VIEN (Thắng, Hưng, Thùy...) ---
+TẠO:
+  POST /api/buoc/:id/cong-viec
+  → Chỉ tạo việc trong bước mà:
+    buoc.inchargeId = userId HOẶC
+    buoc.nguoiPhoiHop contains userId
+  → inchargeId bắt buộc = chính userId
+  → Nếu cố giao người khác → 403
+SỬA:
+  PUT /api/cong-viec/:id
+  → Chỉ sửa việc của chính mình
+  → Chỉ được sửa: trangThai, ghiChu, ngayKetThuc
+  → Không đổi inchargeId → 403
+XÓA:
+  DELETE /api/cong-viec/:id
+  → 403 Forbidden hoàn toàn
+  → Response: "Bạn không có quyền xóa công việc.
+    Liên hệ leader [tên leader DA] để xóa."
+
+Response lỗi chuẩn:
+  { error: "Mô tả lỗi rõ ràng", code: "FORBIDDEN_XYZ",
+    contactPerson: "tên leader cần liên hệ" }
+
+═══════════════════════════════════════════
+PHẦN 3 — XÓA VIỆC: UX VÀ FLOW AN TOÀN
+═══════════════════════════════════════════
+
+Nút xóa chỉ hiện với đúng quyền:
+  QUAN_TRI_VIEN: nút [...] → "Xóa" trên mọi task
+  TRUONG_NHOM: nút [...] → "Xóa" chỉ trong DA mình
+  THANH_VIEN: không có nút xóa, hoàn toàn ẩn
+
+Khi click "Xóa":
+
+BƯỚC 1 — Kiểm tra downstream:
+  Gọi GET /api/cong-viec/:id/dependency
+  Nếu có downstream đang chờ việc này:
+    Hiện cảnh báo đỏ:
+    "⚠ Việc này có [N] công việc đang phụ thuộc:
+    - [tên task 1] — Incharge: [tên]
+    - [tên task 2] — Incharge: [tên]
+    Xóa sẽ ảnh hưởng tiến độ của họ."
+
+BƯỚC 2 — Modal xác nhận:
+  Tiêu đề: "Xóa công việc"
+  Nội dung: tên việc đang xóa
+  Field bắt buộc: "Lý do xóa" (textarea, min 10 ký tự)
+  Checkbox: "Gửi thông báo Lark cho [tên incharge]"
+            (mặc định tick)
+  Nút: [Hủy]  [Xóa công việc] (đỏ, disabled nếu chưa nhập lý do)
+
+BƯỚC 3 — Sau khi xóa:
+  Toast: "Đã xóa: [tên việc]  [Hoàn tác]"
+  Nút "Hoàn tác" trong toast: khôi phục trong 5 giây
+  Sau 5 giây: soft delete chính thức, không hoàn tác được
+  Xóa khỏi UI ngay lập tức (optimistic)
+  Emit WebSocket → các trang khác cũng xóa khỏi list
+  Tính lại % tiến độ bước + SKU
+
+Xem lại việc đã xóa:
+  Trong panel chi tiết bước, footer nhỏ:
+  "Xem [N] việc đã xóa" → expand list mờ
+  Mỗi item: tên · ngày xóa · người xóa · lý do
+  Nút "Khôi phục" (chỉ CEO/PM)
+
+═══════════════════════════════════════════
+PHẦN 4 — FORM TẠO VIỆC THÔNG MINH
+File: client/src/components/congviec/FormTaoViec.tsx
+═══════════════════════════════════════════
+
+Mở từ 3 nơi (truyền buocId):
+  A. Trang Công việc: nút "+ Thêm" trong header bước
+  B. Dòng chảy: click node → panel → "+ Thêm"
+  C. Panel chi tiết bước → tab Công việc → "+ Thêm"
+
+Form tự động khi mở:
+  1. Gọi GET /api/buoc/:buocId
+  2. Điền sẵn readonly (badge xanh):
+     DA, Sản phẩm liên quan
+  3. Lọc Incharge theo role:
+     THANH_VIEN → chỉ tên mình (disabled)
+     TRUONG_NHOM → member trong DA đó
+     QUAN_TRI_VIEN → tất cả thành viên
+
+Fields theo thứ tự:
+  [Tên công việc*]           text, autofocus
+  [Incharge*]                dropdown lọc theo role
+  [Ngày kết thúc*]           date picker
+  [Ngày bắt đầu]             date picker, optional
+  [Ưu tiên]                  Cao / Trung bình / Thấp
+  [Phối hợp với]             multi-select, optional
+  [Định nghĩa hoàn thành]    textarea, optional
+
+Fields tự điền (readonly):
+  Bước: [NAP3 — Đạt test trải nghiệm nắp] badge xanh
+  DA:   [DA3 Nắp] badge xanh
+  SP:   [TT6 · TT7 · TT8] badge cam
+
+Submit → POST /api/buoc/:buocId/cong-viec:
+  Nếu 403: "Bạn không có quyền tạo việc trong bước
+    [tên bước]. Liên hệ [tên leader]."
+  Nếu thành công:
+    Đóng form
+    Refresh list trong bước đó
+    Cập nhật % tiến độ bước trên Gantt
+    Cập nhật % SKU trên trang Sản phẩm
+    Toast: "Đã thêm: [tên việc] vào [NAP3]"
+
+═══════════════════════════════════════════
+PHẦN 5 — ĐỒNG BỘ REALTIME GIỮA CÁC TRANG
+═══════════════════════════════════════════
+
+Backend dùng Socket.io emit theo room:
+  room "da_[duAnId]" cho các DA update
+  room "user_[userId]" cho update cá nhân
+
+Events:
+  CONG_VIEC_CREATED  → { congViec, buocId, duAnId, sanPhamIds }
+  CONG_VIEC_UPDATED  → { id, changed fields, buocId, duAnId }
+  CONG_VIEC_DELETED  → { id, buocId, duAnId, sanPhamIds }
+  BUOC_TIENDO_CHANGED → { buocId, phanTramMoi }
+  SKU_TIENDO_CHANGED → { sanPhamId, chiTiet }
+
+Frontend subscribe theo trang:
+
+Trang Công việc:
+  CREATED + inchargeId = me → thêm vào list
+  UPDATED → cập nhật row tương ứng
+  DELETED → xóa khỏi list, toast "Việc đã bị xóa"
+
+Dòng chảy (Gantt):
+  BUOC_TIENDO_CHANGED → cập nhật badge "X/Y" trên node
+  CONG_VIEC_UPDATED trangThai=BI_CHAN → node đổi màu đỏ
+
+Trang Sản phẩm:
+  SKU_TIENDO_CHANGED → cập nhật thanh tiến độ % ngay
+
+Dashboard CEO:
+  CONG_VIEC_UPDATED BI_CHAN → +1 cản trở trong KPI card
+  CONG_VIEC_UPDATED XONG → -1 đang làm trong KPI card
+
+Daily Report modal:
+  Luôn fetch fresh khi mở, không cache
+
+═══════════════════════════════════════════
+PHẦN 6 — HIỆN THỊ LIÊN KẾT TRÊN TỪNG TRANG
+═══════════════════════════════════════════
+
+TRANG CÔNG VIỆC:
+  Header mỗi nhóm bước:
+    [badge màu DA] [Mã bước] — [Tên bước]
+    Incharge bước · [X/Y việc xong] [thanh %]
+    [Nút "+ Thêm công việc"] (ẩn nếu không có quyền)
+
+DÒNG CHẢY (GANTT):
+  Badge góc dưới phải node: "X/Y"
+  Màu badge: xanh nếu đúng tiến độ, đỏ nếu có BI_CHAN
+  Click node → panel phải:
+    Tab "Công việc": list task + nút thêm
+    Tab "Chi tiết": info + dependency
+
+TRANG SẢN PHẨM:
+  Click SKU → panel:
+    "Bước chậm nhất" + số việc bị block
+
+DASHBOARD CEO:
+  Widget "Cần quyết định hôm nay":
+    Task BI_CHAN > 3 ngày + incharge + nút xử lý
+
+DAILY REPORT:
+  List = task "Của tôi + DANG_LAM/BI_CHAN"
+  Submit → cập nhật trạng thái task realtime
+
+═══════════════════════════════════════════
+PHẦN 7 — API ENDPOINTS ĐẦY ĐỦ
+═══════════════════════════════════════════
+
+POST /api/buoc/:buocId/cong-viec
+  Auth: middleware quyền Phần 2
+  Body: { ten, inchargeId, ngayKetThuc,
+          ngayBatDau?, uuTien?, moTa?,
+          dinhNghiaHoanThanh?, nguoiPhoiHop? }
+  Auto: duAnId, sanPhamIds từ buoc
+  After: emit CONG_VIEC_CREATED, tính lại %
+
+GET /api/buoc/:buocId/cong-viec
+  Response: { tasks[], tongTask, taskXong, phanTram }
+  Filter: bỏ daXoa=true (không hiện việc đã xóa)
+
+GET /api/cong-viec
+  Params: inchargeId, duAnId, buocId,
+          tuNgay, denNgay, trangThai[]
+  Response: grouped by buocId
+  Mỗi group: { buoc: BuocInfo, tasks: CongViec[] }
+  Bỏ daXoa=true khỏi kết quả
+
+PUT /api/cong-viec/:id
+  Auth: middleware quyền Phần 2
+  Nếu trangThai → XONG:
+    Kiểm tra tất cả task trong bước xong chưa
+    Xong hết → auto đổi bước → XONG
+    Emit BUOC_TIENDO_CHANGED
+  Emit CONG_VIEC_UPDATED
+
+DELETE /api/cong-viec/:id
+  Auth: QUAN_TRI_VIEN hoặc TRUONG_NHOM trong DA
+  THANH_VIEN → 403
+  Body: { lyDoXoa, guiThongBao }
+  Soft delete: daXoa=true, ngayXoa, nguoiXoaId, lyDoXoa
+  Nếu guiThongBao: gửi Lark DM cho incharge
+  Emit CONG_VIEC_DELETED
+
+POST /api/cong-viec/:id/khoi-phuc
+  Auth: QUAN_TRI_VIEN only
+  Khôi phục việc đã xóa: daXoa=false
+  Emit CONG_VIEC_CREATED (để các trang thêm lại)
+
+GET /api/buoc/:buocId/cong-viec/da-xoa
+  Auth: QUAN_TRI_VIEN, TRUONG_NHOM trong DA
+  Response: list việc đã xóa + lý do + người xóa
+
+GET /api/cong-viec/:id/dependency
+  Response: upstream[], downstream[], cotMocBiAnh[]
+
+POST /api/cong-viec/:id/cap-nhat-timeline
+  Body: { ngayKetThucMoi, lyDo }
+  Preview impact, chờ confirm
+
+POST /api/cong-viec/:id/confirm-impact
+  Body: { danhSachAnh[], guiThongBao }
+  Batch update + Lark nếu cần
+
+POST /api/cong-viec/:id/notify-downstream
+  Gửi Lark DM cho incharge downstream

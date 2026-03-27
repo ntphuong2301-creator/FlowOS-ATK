@@ -1,0 +1,437 @@
+// FlowOS — Prisma Schema v2
+// Quản lý dự án ra mắt sản phẩm ATK
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enum
+// ─────────────────────────────────────────────
+
+enum CapQuyen {
+  QUAN_TRI_VIEN
+  TRUONG_NHOM
+  THANH_VIEN
+  QUAN_SAT
+}
+
+enum TrangThaiDuAn {
+  DANG_HOAT_DONG
+  TAM_DUNG
+  HOAN_THANH
+  DA_LUU_TRU
+}
+
+enum KenhSanPham {
+  HT
+  TT
+}
+
+enum TrangThaiSanPham {
+  CHUA_BAT_DAU
+  DANG_PHAT_TRIEN
+  HOAN_THANH
+  HUY
+}
+
+enum TrangThaiBuoc {
+  CHUA_LAM
+  DANG_LAM
+  BI_CHAN
+  XONG
+}
+
+enum TrangThaiCongViec {
+  CHUA_LAM
+  DANG_LAM
+  BI_CHAN
+  XONG
+  DA_HUY
+}
+
+enum MucUuTien {
+  THAP
+  TRUNG_BINH
+  CAO
+  KHAN_CAP
+}
+
+enum MucDoCanTro {
+  RAT_NGHIEM_TRONG
+  VUA_PHAI
+  NHE
+}
+
+enum TrangThaiCanTro {
+  MO
+  DANG_XU_LY
+  DA_GIAI_QUYET
+}
+
+enum LoaiBinhLuan {
+  BINH_LUAN
+  DOI_TRANG_THAI
+  AI
+}
+
+enum LoaiPhuThuocCongViec {
+  FINISH_TO_START
+  START_TO_START
+}
+
+enum LoaiPhuThuocBuoc {
+  FS
+  SS
+  FF
+  SF
+}
+
+// ─────────────────────────────────────────────
+// NguoiDung
+// ─────────────────────────────────────────────
+
+model NguoiDung {
+  id          String    @id @default(cuid())
+  ten         String
+  email       String    @unique
+  matKhau     String
+  capQuyen    CapQuyen  @default(THANH_VIEN)
+  boPhan      String?
+  mauAvatar   String?
+  larkUserId  String?
+  larkChatId  String?
+  trangThai   Boolean   @default(true)
+  taoLuc      DateTime  @default(now())
+
+  // Relations
+  duAnTruong         DuAn[]              @relation("TruongNhomDuAn")
+  sanPhamPhuTrach    SanPham[]           @relation("NguoiPhuTrachSanPham")
+  buocPhuTrach       Buoc[]              @relation("NguoiPhuTrachBuoc")
+  congViecPhuTrach   CongViec[]          @relation("NguoiPhuTrachCongViec")
+  congViecPhoi       CongViec[]          @relation("NguoiPhoiCongViec")
+  congViecChot       CongViec[]          @relation("NguoiChotCongViec")
+  canTroGap          CanTro[]            @relation("NguoiGapCanTro")
+  canTroXuLy         CanTro[]            @relation("NguoiXuLyCanTro")
+  capNhatCanTro      CapNhatCanTro[]
+  capNhatHangNgay    CapNhatHangNgay[]
+  binhLuan           BinhLuan[]
+  nhatKy             NhatKy[]
+  phanQuyenDuAn      PhanQuyenDuAn[]
+
+  @@map("nguoi_dung")
+}
+
+// ─────────────────────────────────────────────
+// DuAn
+// ─────────────────────────────────────────────
+
+model DuAn {
+  id           String         @id @default(cuid())
+  ma           String         @unique
+  ten          String
+  moTa         String?
+  mau          String         @default("#008264")
+  trangThai    TrangThaiDuAn  @default(DANG_HOAT_DONG)
+  truongNhomId String?
+  taoLuc       DateTime       @default(now())
+
+  // Relations
+  truongNhom      NguoiDung?        @relation("TruongNhomDuAn", fields: [truongNhomId], references: [id])
+  sanPham         SanPham[]
+  buoc            Buoc[]
+  congViec        CongViec[]
+  canTro          CanTro[]
+  capNhatHangNgay CapNhatHangNgay[]
+  nhatKy          NhatKy[]
+  phanQuyenDuAn   PhanQuyenDuAn[]
+
+  @@map("du_an")
+}
+
+// ─────────────────────────────────────────────
+// SanPham
+// ─────────────────────────────────────────────
+
+model SanPham {
+  id               String             @id @default(cuid())
+  maSp             String             @unique
+  ten              String
+  kenh             KenhSanPham
+  huongVi          String?
+  dungTichMl       Int?
+  phLevel          Float?
+  ngayLaunch       DateTime?
+  trangThai        TrangThaiSanPham   @default(CHUA_BAT_DAU)
+  buocRDHienTai    String?
+  buocNapHienTai   String?
+  buocBaoHienTai   String?
+  duAnId           String
+  nguoiPhuTrachId  String?
+
+  // Relations
+  duAn          DuAn       @relation(fields: [duAnId], references: [id], onDelete: Cascade)
+  nguoiPhuTrach NguoiDung? @relation("NguoiPhuTrachSanPham", fields: [nguoiPhuTrachId], references: [id])
+  congViec      CongViec[]
+
+  @@map("san_pham")
+}
+
+// ─────────────────────────────────────────────
+// Buoc
+// ─────────────────────────────────────────────
+
+model Buoc {
+  id                String          @id @default(cuid())
+  ma                String
+  ten               String
+  diaDiemHoanThanh  String?
+  soNgayDuKien      Int?
+  duAnId            String
+  nguoiPhuTrachId   String?
+  ngayBatDau        DateTime?
+  ngayKetThuc       DateTime?
+  trangThai         TrangThaiBuoc   @default(CHUA_LAM)
+  ghiChu            String?
+  taoLuc            DateTime        @default(now())
+
+  // Relations
+  duAn          DuAn      @relation(fields: [duAnId], references: [id], onDelete: Cascade)
+  nguoiPhuTrach NguoiDung? @relation("NguoiPhuTrachBuoc", fields: [nguoiPhuTrachId], references: [id])
+  congViec      CongViec[]
+  canTro        CanTro[]
+
+  phuThuocVao   PhuThuocBuoc[] @relation("BuocCon")
+  cacBuocPhuThuoc PhuThuocBuoc[] @relation("BuocCha")
+
+  @@map("buoc")
+}
+
+// ─────────────────────────────────────────────
+// PhuThuocBuoc
+// ─────────────────────────────────────────────
+
+model PhuThuocBuoc {
+  id            String              @id @default(cuid())
+  buocId        String
+  phuThuocVaoId String
+  loai          LoaiPhuThuocBuoc    @default(FS)
+  soNgayTre     Int                 @default(0)
+
+  buoc        Buoc @relation("BuocCon", fields: [buocId], references: [id], onDelete: Cascade)
+  phuThuocVao Buoc @relation("BuocCha", fields: [phuThuocVaoId], references: [id], onDelete: Cascade)
+
+  @@unique([buocId, phuThuocVaoId])
+  @@map("phu_thuoc_buoc")
+}
+
+// ─────────────────────────────────────────────
+// CongViec
+// ─────────────────────────────────────────────
+
+model CongViec {
+  id                  String              @id @default(cuid())
+  ten                 String
+  moTa                String?
+  dinhNghiaHoanThanh  String?
+  ghiChu              String?
+  duAnId              String
+  sanPhamId           String?
+  sanPhamIds          String[]
+  nguoiPhuTrachId     String?
+  nguoiPhoiId         String?
+  nguoiPhoiHop        String[]
+  nguoiChotId         String?
+  trangThai           TrangThaiCongViec   @default(CHUA_LAM)
+  mucUuTien           MucUuTien           @default(TRUNG_BINH)
+  buocQuyTrinhId      String?
+  ngayBatDau          DateTime?
+  ngayKetThuc         DateTime?
+  ngayKetThucThucTe   DateTime?
+  soNgayDuKien        Int?
+  soNgayTre           Int                 @default(0)
+  daXoa               Boolean             @default(false)
+  ngayXoa             DateTime?
+  nguoiXoaId          String?
+  lyDoXoa             String?
+  taoLuc              DateTime            @default(now())
+  capNhatLuc          DateTime            @updatedAt
+
+  // Relations
+  duAn          DuAn       @relation(fields: [duAnId], references: [id], onDelete: Cascade)
+  sanPham       SanPham?   @relation(fields: [sanPhamId], references: [id])
+  buocQuyTrinh  Buoc?      @relation(fields: [buocQuyTrinhId], references: [id])
+  nguoiPhuTrach NguoiDung? @relation("NguoiPhuTrachCongViec", fields: [nguoiPhuTrachId], references: [id])
+  nguoiPhoi     NguoiDung? @relation("NguoiPhoiCongViec", fields: [nguoiPhoiId], references: [id])
+  nguoiChot     NguoiDung? @relation("NguoiChotCongViec", fields: [nguoiChotId], references: [id])
+  canTro        CanTro[]
+  binhLuan      BinhLuan[]
+  nhatKy        NhatKy[]
+
+  phuThuocVao     PhuThuocCongViec[] @relation("CongViecCon")
+  caCongViecPhuThuoc PhuThuocCongViec[] @relation("CongViecCha")
+
+  @@map("cong_viec")
+}
+
+// ─────────────────────────────────────────────
+// PhuThuocCongViec
+// ─────────────────────────────────────────────
+
+model PhuThuocCongViec {
+  id            String                 @id @default(cuid())
+  congViecId    String
+  phuThuocVaoId String
+  loai          LoaiPhuThuocCongViec   @default(FINISH_TO_START)
+  soNgayBuffer  Int                    @default(0)
+
+  congViec    CongViec @relation("CongViecCon", fields: [congViecId], references: [id], onDelete: Cascade)
+  phuThuocVao CongViec @relation("CongViecCha", fields: [phuThuocVaoId], references: [id], onDelete: Cascade)
+
+  @@unique([congViecId, phuThuocVaoId])
+  @@map("phu_thuoc_cong_viec")
+}
+
+// ─────────────────────────────────────────────
+// CanTro
+// ─────────────────────────────────────────────
+
+model CanTro {
+  id               String            @id @default(cuid())
+  ten              String
+  moTa             String?
+  mucDo            MucDoCanTro       @default(VUA_PHAI)
+  trangThai        TrangThaiCanTro   @default(MO)
+  duAnId           String
+  buocBiChanId     String?
+  congViecBiChanId String?
+  nguoiGapId       String
+  nguoiXuLyId      String?
+  giaiPhap         String?
+  ngayPhatSinh     DateTime          @default(now())
+  ngayXuLy         DateTime?
+  hanXuLy          DateTime?
+  larkMessageId    String?
+  larkChatId       String?
+  taoLuc           DateTime          @default(now())
+
+  // Relations
+  duAn           DuAn       @relation(fields: [duAnId], references: [id], onDelete: Cascade)
+  buocBiChan     Buoc?      @relation(fields: [buocBiChanId], references: [id])
+  congViecBiChan CongViec?  @relation(fields: [congViecBiChanId], references: [id])
+  nguoiGap       NguoiDung  @relation("NguoiGapCanTro", fields: [nguoiGapId], references: [id])
+  nguoiXuLy      NguoiDung? @relation("NguoiXuLyCanTro", fields: [nguoiXuLyId], references: [id])
+  capNhat        CapNhatCanTro[]
+
+  @@map("can_tro")
+}
+
+// ─────────────────────────────────────────────
+// CapNhatCanTro
+// ─────────────────────────────────────────────
+
+model CapNhatCanTro {
+  id              String            @id @default(cuid())
+  canTroId        String
+  noiDung         String
+  nguoiCapNhatId  String
+  doiTrangThai    Boolean           @default(false)
+  trangThaiCu     TrangThaiCanTro?
+  trangThaiMoi    TrangThaiCanTro?
+  taoLuc          DateTime          @default(now())
+
+  canTro       CanTro    @relation(fields: [canTroId], references: [id], onDelete: Cascade)
+  nguoiCapNhat NguoiDung @relation(fields: [nguoiCapNhatId], references: [id])
+
+  @@map("cap_nhat_can_tro")
+}
+
+// ─────────────────────────────────────────────
+// CapNhatHangNgay
+// ─────────────────────────────────────────────
+
+model CapNhatHangNgay {
+  id           String    @id @default(cuid())
+  nguoiDungId  String
+  duAnId       String
+  ngay         DateTime  @db.Date
+  lamHomNay    String?
+  lamNgayMai   String?
+  canGi        String?
+  coCanTro     Boolean   @default(false)
+  taoLuc       DateTime  @default(now())
+
+  nguoiDung NguoiDung @relation(fields: [nguoiDungId], references: [id])
+  duAn      DuAn      @relation(fields: [duAnId], references: [id], onDelete: Cascade)
+
+  @@unique([nguoiDungId, duAnId, ngay])
+  @@map("cap_nhat_hang_ngay")
+}
+
+// ─────────────────────────────────────────────
+// BinhLuan
+// ─────────────────────────────────────────────
+
+model BinhLuan {
+  id          String        @id @default(cuid())
+  congViecId  String
+  nguoiDungId String
+  noiDung     String
+  loai        LoaiBinhLuan  @default(BINH_LUAN)
+  metaData    Json?
+  taoLuc      DateTime      @default(now())
+
+  congViec  CongViec  @relation(fields: [congViecId], references: [id], onDelete: Cascade)
+  nguoiDung NguoiDung @relation(fields: [nguoiDungId], references: [id])
+
+  @@map("binh_luan")
+}
+
+// ─────────────────────────────────────────────
+// NhatKy
+// ─────────────────────────────────────────────
+
+model NhatKy {
+  id              String    @id @default(cuid())
+  bangDuLieu      String
+  bghiId          String
+  hanhDong        String
+  nguoiThucHienId String
+  duAnId          String?
+  congViecId      String?
+  giaTriCu        Json?
+  giaTriMoi       Json?
+  taoLuc          DateTime  @default(now())
+
+  nguoiThucHien NguoiDung @relation(fields: [nguoiThucHienId], references: [id])
+  duAn          DuAn?     @relation(fields: [duAnId], references: [id])
+  congViec      CongViec? @relation(fields: [congViecId], references: [id])
+
+  @@map("nhat_ky")
+}
+
+// ─────────────────────────────────────────────
+// PhanQuyenDuAn — quyền chi tiết theo dự án
+// ─────────────────────────────────────────────
+
+model PhanQuyenDuAn {
+  id           String   @id @default(cuid())
+  nguoiDungId  String
+  duAnId       String
+  xem          Boolean  @default(true)
+  sua          Boolean  @default(false)
+  taoBuoc      Boolean  @default(false)
+  taoCongViec  Boolean  @default(false)
+  capNhat      DateTime @default(now())
+
+  nguoiDung NguoiDung @relation(fields: [nguoiDungId], references: [id], onDelete: Cascade)
+  duAn      DuAn      @relation(fields: [duAnId], references: [id], onDelete: Cascade)
+
+  @@unique([nguoiDungId, duAnId])
+  @@map("phan_quyen_du_an")
+}

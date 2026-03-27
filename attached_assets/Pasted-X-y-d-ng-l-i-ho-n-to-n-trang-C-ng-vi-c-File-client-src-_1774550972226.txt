@@ -1,0 +1,255 @@
+Xây dựng lại hoàn toàn trang Công việc.
+File: client/src/pages/CongViec.tsx
+Tên hiển thị: "Công việc của tôi"
+
+═══════════════════════════════════════════
+LAYOUT TỔNG THỂ
+═══════════════════════════════════════════
+
+Bố cục ngang: 2 cột
+  Cột trái (65%): danh sách công việc
+  Cột phải (35%): panel chi tiết
+    - Mặc định ẩn, hiện khi click vào task
+    - Có nút X để đóng panel
+
+═══════════════════════════════════════════
+CỘT TRÁI — FILTER BAR
+═══════════════════════════════════════════
+
+Hàng 1: toggle + dropdown
+  [Của tôi] [Tất cả] — pill toggle
+  [Sprint 2 (đang chạy) ▾] — dropdown
+  "X việc · Y bị chặn" — hiện bên phải
+
+Hàng 2: filter trạng thái dạng pills
+  [● Đang làm] [● Bị chặn] [● Trễ] [● Chưa làm] [● Xong]
+  Mặc định tick: Đang làm + Bị chặn + Trễ
+  Click pill để toggle on/off
+  Màu pill khi active:
+    Đang làm → nền #FAEEDA chữ #92400E
+    Bị chặn  → nền #FCEBEB chữ #991B1B
+    Trễ      → nền #FEF3C7 chữ #854D0E
+    Chưa làm → nền xám nhạt chữ xám
+    Xong     → nền #E1F5EE chữ #065F46
+
+Lưu filter vào localStorage key:
+  "flowos_filter_congviec_[userId]"
+
+═══════════════════════════════════════════
+CỘT TRÁI — DANH SÁCH NHÓM THEO OKR
+═══════════════════════════════════════════
+
+Group header cho mỗi OKR (mucTieu):
+
+▼ RDO1  Sản xuất xong 5 con SP kênh HT   ████░░ 6/10 xong
+  
+  click header → collapse/expand nhóm
+
+Mỗi hàng task (height 48px):
+
+[dot màu] [tên CV - truncate]    [badge trễ]  [badge TT]
+          [bước · sprint · incharge]
+
+dot màu:
+  xanh lá  = Xong
+  xanh dương = Đang làm
+  đỏ       = Bị chặn
+  vàng     = Trễ chưa xong
+  xám      = Chưa làm
+
+Click hàng → mở panel phải + highlight hàng đó
+  (active row: nền #E1F5EE + border-left 2px #008264)
+
+Hover hàng → hiện nút [...] bên phải
+  Click [...] → dropdown: Đổi trạng thái / Đổi hạn /
+                Xem bước / Tạo cản trở / Xóa
+
+Dropdown đổi trạng thái ngay tại hàng:
+  Click badge trạng thái → dropdown inline
+  Chọn trạng thái mới → PUT /api/cong-viec/:id
+  Nếu chọn "Bị chặn" → mở modal tạo cản trở
+
+═══════════════════════════════════════════
+CỘT PHẢI — PANEL CHI TIẾT (2 tab)
+═══════════════════════════════════════════
+
+HEADER PANEL:
+  Tên đầy đủ (có thể edit inline — click để sửa)
+  Badges: trạng thái + số ngày trễ + sprint
+  
+  3 nút quick action:
+  [✓ Xong rồi]  [⚠ Báo chặn]  [📅 Đổi hạn]
+  
+  Click "Xong rồi" → PUT trạng thái XONG
+    + hỏi "Ghi chú hoàn thành?" (optional)
+  
+  Click "Báo chặn" → mở modal CanTro
+    tự điền: congViecBiChanId, nguoiGapId
+  
+  Click "Đổi hạn" → inline date picker
+    sau khi chọn ngày mới → gọi
+    GET /api/cong-viec/:id/dependency để preview impact
+    Hiện modal confirm với danh sách downstream bị ảnh hưởng
+
+TAB 1 — "Chi tiết":
+  Bảng thông tin:
+    Bước quy trình → clickable → mở PanelChiTietBuoc
+    Dự án
+    Incharge (có thể đổi)
+    Phối hợp với
+    Hạn gốc
+    Hạn thực tế (đỏ nếu khác hạn gốc)
+    Sản phẩm liên quan → clickable
+    Sprint
+    Ưu tiên
+  
+  Định nghĩa hoàn thành:
+    Text block nền xám nhạt
+  
+  Ghi chú:
+    Textarea tự do, auto-save khi blur
+  
+  Lịch sử cập nhật:
+    Timeline dọc: [avatar] [tên] [hành động] [giờ]
+    Hiện 5 mục gần nhất
+    "Xem thêm" để load thêm
+
+TAB 2 — "Liên kết & Tác động":
+
+  SECTION UPSTREAM — "Tôi đang chờ":
+    Mỗi item:
+      [dot màu TT] [tên task] [badge TT]
+      [Incharge · Bước · Hạn]
+    
+    Nếu có upstream đang trễ:
+      Banner vàng: "⚠ [tên task] trễ X ngày
+      → Bạn có thể bị ảnh hưởng"
+
+  SECTION DOWNSTREAM — "Đang chờ tôi":
+    Mỗi item:
+      [dot màu] [tên task]         [+X ngày]
+      [Incharge · Bước · Hạn mới nếu tôi trễ]
+    
+    Tính số ngày bị ảnh hưởng từ
+    soNgayTreHienTai của task hiện tại
+
+  CẢNH BÁO CỘT MỐC:
+    Nếu downstream ảnh hưởng Launch:
+    Ô đỏ: "Nếu task này tiếp tục trễ
+    → 🚀 Launch HT 15/05 có nguy cơ lùi ~X ngày"
+
+  3 NÚT HÀNH ĐỘNG:
+  [📢 Thông báo downstream qua Lark]
+    → POST /api/cong-viec/:id/notify-downstream
+    → Gửi DM Lark cho incharge của downstream
+  
+  [📅 Cập nhật hạn mới + tính lại chuỗi]
+    → Mở flow 4 bước:
+      1. Chọn ngày mới
+      2. Preview impact tất cả downstream
+      3. Tick "Gửi thông báo Lark"
+      4. [Hủy] [Xác nhận]
+  
+  [🤖 AI đề xuất cách recover]
+    → POST /api/ai/goi-y-recover
+    → Input: congViecId + soNgayTre + downstream
+    → Streaming response trong panel
+
+═══════════════════════════════════════════
+BANNER DAILY — cố định dưới cùng cột trái
+═══════════════════════════════════════════
+
+Chưa báo cáo hôm nay (trước 18:00):
+  Nền vàng nhạt:
+  "📝 Bạn chưa báo cáo hôm nay  [Điền ngay →]"
+  Click → mở modal Daily Report
+
+Đã báo cáo:
+  Nền xanh nhạt:
+  "✓ Đã báo cáo lúc HH:mm  [Xem lại]"
+
+═══════════════════════════════════════════
+MODAL DAILY REPORT (mở từ banner)
+═══════════════════════════════════════════
+
+Title: "Cập nhật hàng ngày — [ngày hôm nay]"
+
+PHẦN A: Hôm nay đã làm gì
+  Multi-select từ task "Của tôi + Đang làm"
+  Mỗi task được chọn → toggle "Đã xong?"
+    Xong → tự đổi trạng thái → XONG
+    Chưa → giữ DANG_LAM
+  Ô text tự do thêm ghi chú
+
+PHẦN B: Ngày mai sẽ làm gì
+  Multi-select từ task "Của tôi + Chưa làm/Đang làm"
+  Có thể gõ tự do
+
+PHẦN C: Cần hỗ trợ gì
+  Textarea (optional)
+  Toggle: "Đang bị cản trở"
+    Bật → mở inline form tạo cản trở
+    Tự điền nguoiGapId = người đang đăng nhập
+
+PHẦN D: Trạng thái chung hôm nay
+  3 nút emoji lớn:
+  [😊 Tốt] [😐 Bình thường] [😓 Khó khăn]
+
+Nút Submit: "Gửi báo cáo"
+  → POST /api/cap-nhat-hang-ngay
+  → Batch update trạng thái các task đã tick xong
+  → Nếu có cản trở → tạo CanTro + gửi Lark nhóm SOS
+  → Đóng modal + banner đổi sang "✓ Đã báo cáo"
+
+═══════════════════════════════════════════
+API GỌI TỪ TRANG NÀY
+═══════════════════════════════════════════
+
+GET /api/cong-viec
+  Params: inchargeId, sprintId, trangThai[]
+  Response: grouped by mucTieu + % hoàn thành mỗi nhóm
+
+GET /api/cong-viec/:id
+  Response: full detail + upstream + downstream
+
+PUT /api/cong-viec/:id
+  Body: { trangThai?, ngayKetThuc?, ghiChu? }
+
+GET /api/cong-viec/:id/dependency
+  Response: { upstream[], downstream[], cotMocBiAnh[] }
+
+POST /api/cong-viec/:id/notify-downstream
+  Gửi Lark DM cho incharge downstream
+
+POST /api/cap-nhat-hang-ngay
+  Body: { lamHomNay[], lamNgayMai[], canGi, trangThaiChung,
+          taskXong: string[], canTroMoi?: CanTro }
+
+GET /api/sprint/hien-tai
+  Response: sprint đang chạy
+
+═══════════════════════════════════════════
+DATA LOADING & PERFORMANCE
+═══════════════════════════════════════════
+
+Load khi vào trang:
+  1. GET /api/sprint/hien-tai
+  2. GET /api/cong-viec?inchargeId=[me]&sprintId=[current]
+  3. Hiện skeleton loader khi đang fetch
+
+Auto refresh mỗi 3 phút (không reload cả trang,
+chỉ refetch data và update state)
+
+Optimistic update khi đổi trạng thái:
+  Đổi UI ngay lập tức, rollback nếu API lỗi
+
+Empty states:
+  Không có task nào phù hợp filter:
+    "Không có công việc nào trong Sprint này
+    với filter hiện tại"
+    Nút: [Xóa filter] [Xem tất cả sprint]
+  
+  Chưa được giao việc:
+    "Bạn chưa được giao việc nào
+    trong Sprint này"
+    Nút: [Xem tất cả công việc →]

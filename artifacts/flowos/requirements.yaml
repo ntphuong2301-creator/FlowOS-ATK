@@ -1,0 +1,23 @@
+packages:
+  "zustand": "State management for authentication and global state"
+  "recharts": "Data visualization for dashboard charts"
+  "reactflow": "Canvas editor for flow processes"
+  "@hello-pangea/dnd": "Drag and drop functionality for Kanban board"
+  "date-fns": "Human-readable date formatting"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility function to efficiently merge Tailwind CSS classes"
+  "react-hook-form": "Performant, flexible and extensible forms with easy-to-use validation"
+  "@hookform/resolvers": "Validation resolvers for react-hook-form"
+
+images:
+  - path: "artifacts/flowos/public/images/auth-bg.png"
+    description: "Abstract fluid gradient background with deep green (#008264) and subtle teal hues, clean, professional productivity style"
+    aspect_ratio: "16:9"
+  - path: "artifacts/flowos/public/images/empty-state.png"
+    description: "Minimalist 3D illustration of an empty folder or clipboard with a small plant leaf, symbolizing a fresh start, primary color accents"
+    aspect_ratio: "1:1"
+
+notes:
+  - Global fetch interceptor is used in App.tsx to inject JWT token from localStorage.
+  - Using generated API hooks from @workspace/api-client-react.
+  - UI is completely in Vietnamese.

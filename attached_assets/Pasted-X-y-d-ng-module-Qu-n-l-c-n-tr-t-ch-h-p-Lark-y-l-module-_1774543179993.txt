@@ -1,0 +1,56 @@
+Xây dựng module Quản lý cản trở tích hợp Lark.
+Đây là module quan trọng nhất — tất cả tiếng Việt.
+
+=== BACKEND ===
+File: server/src/services/lark.service.ts
+Tạo LarkService với các phương thức:
+1. guiCanhBaoCanTro(canTro, congViec, duAn, nguoiXuLy):
+   Gọi Lark Bot API gửi Interactive Card vào nhóm
+   Card gồm: header đỏ "🔴 Cản trở mới phát sinh"
+   Nội dung: tên cản trở, mức độ, công việc bị chặn,
+   người xử lý, hạn xử lý
+   Các nút: "Xử lý ngay" và "Xem chi tiết"
+   Lưu larkMessageId vào bản ghi cản trở
+2. guiDaGiaiQuyet(canTro, nguoiGiaiQuyet):
+   Gửi tin "✅ Đã giải quyết: [tên cản trở]" vào cùng nhóm
+   Reply vào thread của tin nhắn gốc
+3. guiTomTatSang(chatId, noiDungTomTat):
+   Gửi tóm tắt AI mỗi sáng 8:00
+Lark API: https://open.larksuite.com/open-apis
+Dùng Bot Token từ LARK_APP_ID + LARK_APP_SECRET
+
+File: server/src/routes/can-tro.ts
+  GET /api/can-tro?trangThai=&mucDo=&duAnId=
+  POST /api/can-tro → Sau khi tạo: tự gọi guiCanhBaoCanTro()
+  GET /api/can-tro/:id
+  PATCH /api/can-tro/:id → Nếu DA_GIAI_QUYET: gọi guiDaGiaiQuyet()
+  POST /api/can-tro/:id/cap-nhat
+
+=== FRONTEND ===
+File: client/src/pages/QuanLyCanTro.tsx
+Tên trang: "Quản lý cản trở"
+
+HEADER: 4 thẻ số liệu
+  - Đang mở (số đỏ nếu > 0)
+  - Rất nghiêm trọng
+  - Trung bình ngày bị chặn
+  - Đã giải quyết tuần này
+
+BẢNG CẢN TRỞ:
+  Cột: Mức độ | Hạng mục | Công việc bị chặn | Dự án |
+       Người xử lý | Hạn xử lý | Số ngày kẹt | Trạng thái | Hành động
+  Tô màu: Rất nghiêm trọng = nền đỏ nhạt, Vừa phải = nền vàng nhạt
+
+HỘP THOẠI TẠO CẢN TRỞ MỚI: Form 7 trường:
+  1. Hạng mục bị cản trở (textarea, bắt buộc)
+  2. Mức độ (radio: Rất nghiêm trọng / Vừa phải / Nhẹ)
+  3. Công việc bị chặn (dropdown tìm kiếm)
+  4. Người xử lý (dropdown thành viên)
+  5. Hạn xử lý (chọn ngày)
+  6. Gửi thông báo Lark (toggle BẬT mặc định)
+  7. Chọn nhóm Lark (dropdown: SOS / R&D / DA Nắp / Tất cả)
+
+Khi đổi trạng thái công việc sang "Bị cản trở":
+  → Tự động mở hộp thoại tạo cản trở mới
+  → Không cho phép đổi mà không điền thông tin
+

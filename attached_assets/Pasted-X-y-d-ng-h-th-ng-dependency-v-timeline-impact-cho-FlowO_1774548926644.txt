@@ -1,0 +1,208 @@
+Xây dựng hệ thống dependency và timeline impact cho FlowOS.
+
+═══════════════════════════════════════════
+PHẦN 1 — PRISMA SCHEMA: THÊM QUAN HỆ PHỤ THUỘC
+═══════════════════════════════════════════
+
+Thêm vào schema.prisma:
+
+model PhuThuocCongViec {
+  id             String    @id @default(cuid())
+  congViecId     String
+  phuThuocVaoId  String    // công việc upstream
+  loai           String    // FINISH_TO_START | START_TO_START
+  soNgayBuffer   Int       @default(0) // ngày đệm giữa 2 task
+  congViec       CongViec  @relation("congViec", fields: [congViecId])
+  phuThuocVao    CongViec  @relation("phuThuocVao", fields: [phuThuocVaoId])
+}
+
+Thêm vào model CongViec:
+  phuThuocVao    PhuThuocCongViec[] @relation("congViec")
+  phuThuocBoi    PhuThuocCongViec[] @relation("phuThuocVao")
+  ngayKetThucThucTe DateTime?  // ngày KT thực tế sau delay
+
+Chạy: npx prisma migrate dev --name add_dependency
+
+═══════════════════════════════════════════
+PHẦN 2 — SERVICE TÍNH IMPACT
+File: server/src/services/dependency.service.ts
+═══════════════════════════════════════════
+
+Viết DependencyService:
+
+1. layUpstream(congViecId):
+   Đệ quy lấy tất cả công việc upstream
+   Trả về:
+   {
+     direct: CongViec[],    // phụ thuộc trực tiếp
+     indirect: CongViec[],  // phụ thuộc gián tiếp
+     trangThai: 'day_du' | 'chua_xong' | 'tre'
+   }
+
+2. layDownstream(congViecId):
+   Đệ quy lấy tất cả công việc downstream
+   Với mỗi downstream tính:
+   soNgayBiAnh = soNgayTreHienTai của task hiện tại
+   ngayKTMoi = ngayKetThuc + soNgayBiAnh
+   Trả về:
+   {
+     direct: [{...cv, soNgayBiAnh, ngayKTMoi}],
+     indirect: [{...cv, soNgayBiAnh, ngayKTMoi}],
+     cotMocBiAnh: [{ten, ngayGoc, ngayMoi, soNgayLui}]
+   }
+
+3. tinhImpactTimeline(congViecId, ngayKTMoi):
+   Input: task + ngày KT mới dự kiến
+   Tính soNgayTre = ngayKTMoi - ngayKetThucGoc
+   Đệ quy cập nhật tất cả downstream
+   Kiểm tra xem có ảnh hưởng Launch 15/05 không
+   Trả về:
+   {
+     danhSachAnh: [{congViecId, ngayKTGoc, ngayKTMoi, soNgayLui}],
+     cotMocBiAnh: [{ten, ngayGoc, ngayMoi}],
+     launchBiAnh: boolean,
+     soNgayLuiLaunch: number
+   }
+
+4. guiThongBaoDownstream(congViecId, impact):
+   Gọi LarkService gửi tin nhắn cho:
+   - Incharge của tất cả downstream bị ảnh hưởng
+   - Group SOS nếu launchBiAnh = true
+   Nội dung: "BBN6 trễ 3 ngày → [tên task của bạn]
+   bị lùi từ [ngày cũ] → [ngày mới]"
+
+═══════════════════════════════════════════
+PHẦN 3 — API ENDPOINTS
+═══════════════════════════════════════════
+
+GET /api/cong-viec/:id/dependency
+Trả về:
+{
+  congViec: CongViec,
+  upstream: { direct[], indirect[] },
+  downstream: { direct[], indirect[] },
+  cotMocBiAnh: [],
+  soNgayTreHienTai: number
+}
+
+POST /api/cong-viec/:id/cap-nhat-timeline
+Body: { ngayKetThucMoi, lyDo }
+Actions:
+  1. Cập nhật ngayKetThucThucTe
+  2. Gọi tinhImpactTimeline
+  3. Trả về impact để user confirm
+  4. Sau confirm: cập nhật DB + gửi Lark
+
+POST /api/cong-viec/:id/confirm-impact
+Body: { danhSachAnh[], guiThongBao: boolean }
+Actions:
+  1. Batch update ngayKetThucThucTe cho tất cả downstream
+  2. Nếu guiThongBao: gửi Lark cho từng người
+
+═══════════════════════════════════════════
+PHẦN 4 — PANEL CHI TIẾT CÔNG VIỆC
+File: client/src/components/congviec/PanelChiTietCongViec.tsx
+═══════════════════════════════════════════
+
+Panel trượt từ phải, width 520px, 2 tab:
+
+TAB 1: "Chi tiết"
+  Header: Tên CV + badge trạng thái + badge trễ N ngày
+  
+  Info block:
+    Bước quy trình → click → mở PanelChiTietBuoc
+    Dự án · Incharge · Sprint
+    Hạn gốc · Hạn thực tế · Số ngày trễ (đỏ nếu > 0)
+    Định nghĩa hoàn thành
+    Cản trở liên quan
+    
+  Lịch sử:
+    Timeline: [ngày] [ai] [làm gì]
+    Ví dụ: 25/03 Thúy đổi trạng thái → Đang làm
+    Ví dụ: 27/03 Thúy cập nhật hạn → 31/03
+
+TAB 2: "Liên kết & Tác động"
+
+  SECTION UPSTREAM — "Tôi đang chờ":
+    Tiêu đề: "⬆ Upstream (N việc)"
+    Mỗi item:
+    ┌─────────────────────────────────────┐
+    │ [màu trạng thái] Tên công việc      │
+    │ Incharge · Bước · Hạn · Trạng thái │
+    │ Xong rồi ✓ / Còn X ngày / Trễ Y ngày│
+    └─────────────────────────────────────┘
+    
+    Nếu upstream nào đang trễ:
+    Banner vàng: "⚠ BBN4 đang trễ 2 ngày
+    → Bạn có thể bị ảnh hưởng"
+
+  SECTION DOWNSTREAM — "Đang chờ tôi":
+    Tiêu đề: "⬇ Downstream (N việc)"
+    Mỗi item hiện:
+    ┌─────────────────────────────────────┐
+    │ [màu] Tên công việc                 │
+    │ Incharge · Bước · Hạn hiện tại      │
+    │ Nếu tôi trễ X ngày → hạn mới: [ngày]│
+    └─────────────────────────────────────┘
+
+  SECTION CỘT MỐC BỊ ẢNH HƯỞNG:
+    "Nếu task này trễ X ngày:"
+    🚀 Launch HT 15/05 → lùi Y ngày (màu đỏ nếu > 0)
+    🚀 Launch TT 15/06 → lùi Y ngày
+
+  THANH CÔNG CỤ TIMELINE (chỉ hiện khi trễ > 0):
+  ┌────────────────────────────────────────────┐
+  │ Task này đang trễ 3 ngày                   │
+  │                                            │
+  │ [📢 Thông báo downstream qua Lark]         │
+  │ [📅 Cập nhật hạn mới + tính lại chuỗi]    │
+  │ [🤖 AI đề xuất cách recover]               │
+  └────────────────────────────────────────────┘
+
+  FLOW CẬP NHẬT HẠN MỚI:
+  Bước 1: User click "Cập nhật hạn mới"
+  Bước 2: Chọn ngày mới + nhập lý do
+  Bước 3: Hiện preview impact:
+    "Thay đổi này sẽ ảnh hưởng 3 công việc:
+    - BBN9 lùi từ 04/04 → 07/04
+    - DCDB2 lùi từ 08/04 → 11/04
+    - SXCN2 lùi từ 10/04 → 13/04
+    ⚠ Launch HT có nguy cơ lùi ~1 ngày"
+  Bước 4: Checkbox "Gửi thông báo Lark cho 3 người"
+  Bước 5: [Hủy] [Xác nhận cập nhật]
+  Bước 6: Sau confirm → batch update + gửi Lark
+
+═══════════════════════════════════════════
+PHẦN 5 — THÔNG BÁO LARK KHI TIMELINE THAY ĐỔI
+═══════════════════════════════════════════
+
+Khi có task upstream trễ → tự động gửi Lark
+cho incharge của task downstream:
+
+Template tin nhắn:
+"⚠️ Thông báo tác động timeline
+
+[Tên task upstream] bị trễ [N ngày]
+→ Ảnh hưởng đến task của bạn:
+
+📋 [Tên task của bạn]
+Hạn cũ: [ngày]  →  Hạn mới dự kiến: [ngày]
+Bước: [tên bước] | Sprint: [tên sprint]
+
+Hành động đề xuất:
+- Kiểm tra lại kế hoạch của bạn
+- Vào FlowOS để cập nhật timeline
+
+[Xem chi tiết →] [link task]"
+
+Gửi ngay khi: POST /confirm-impact được gọi
+Gửi vào: DM cá nhân qua Lark Bot
+Nếu ảnh hưởng Launch → gửi thêm vào nhóm SOS
+
+═══════════════════════════════════════════
+PHẦN 6 — HIỆN THỊ TRONG DÒNG CHẢY
+═══════════════════════════════════════════
+
+Trong DongChayDuAn, khi một task/bước trễ:
+
+1. Bước bị trễ: viền đỏ đậm + i
